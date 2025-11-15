@@ -20,5 +20,11 @@ public class PaymentController implements PaymentsApi {
         PaymentResponse response = paymentService.createPayment(createPaymentRequest);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
+
+    @Override
+    public ResponseEntity<PaymentResponse> getPaymentById(Long id) {
+        PaymentResponse response = paymentService.getPaymentById(id);
+        return ResponseEntity.ok(response);
+    }
 }
 

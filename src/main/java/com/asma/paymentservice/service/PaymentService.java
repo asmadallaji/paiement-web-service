@@ -5,6 +5,7 @@ import com.asma.paymentservice.dto.PaymentResponse;
 import com.asma.paymentservice.entity.Payment;
 import com.asma.paymentservice.entity.PaymentStatus;
 import com.asma.paymentservice.exception.InvalidPaymentRequestException;
+import com.asma.paymentservice.exception.PaymentNotFoundException;
 import com.asma.paymentservice.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -58,6 +59,17 @@ public class PaymentService {
         log.info("Payment created with ID: {}", savedPayment.getId());
 
         return mapToResponse(savedPayment);
+    }
+
+    public PaymentResponse getPaymentById(Long id) {
+        Payment payment = paymentRepository.findById(id)
+                .orElseThrow(() -> {
+                    log.warn("Payment not found with ID: {}", id);
+                    return new PaymentNotFoundException(id);
+                });
+        
+        log.info("Payment retrieved with ID: {}", id);
+        return mapToResponse(payment);
     }
 
     private void validatePaymentRequest(CreatePaymentRequest request) {

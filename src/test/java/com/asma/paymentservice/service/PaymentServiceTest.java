@@ -6,6 +6,7 @@ import com.asma.paymentservice.dto.PaymentResponse;
 import com.asma.paymentservice.entity.Payment;
 import com.asma.paymentservice.entity.PaymentStatus;
 import com.asma.paymentservice.exception.InvalidPaymentRequestException;
+import com.asma.paymentservice.exception.PaymentNotFoundException;
 import com.asma.paymentservice.repository.PaymentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -423,5 +424,58 @@ class PaymentServiceTest {
                 eq("order456"), eq("user123"), eq(PaymentStatus.PENDING));
         // Verify that save was called (new payment created because existing one is not PENDING)
         verify(paymentRepository, times(1)).save(any(Payment.class));
+    }
+
+    @Test
+    void getPaymentById_WithExistingId_ShouldReturnPayment() {
+        // Given
+        Long paymentId = 1L;
+        Payment payment = Payment.builder()
+                .id(paymentId)
+                .amount(BigDecimal.valueOf(99.99))
+                .currency("USD")
+                .method("CREDIT_CARD")
+                .status(PaymentStatus.PENDING)
+                .userId("user123")
+                .orderId("order456")
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+
+        when(paymentRepository.findById(paymentId)).thenReturn(Optional.of(payment));
+
+        // When
+        PaymentResponse response = paymentService.getPaymentById(paymentId);
+
+        // Then
+        assertNotNull(response);
+        assertEquals(paymentId, response.getId());
+        assertEquals(99.99, response.getAmount());
+        assertEquals("USD", response.getCurrency());
+        assertEquals("CREDIT_CARD", response.getMethod());
+        assertEquals(PaymentResponse.StatusEnum.PENDING, response.getStatus());
+        assertEquals("user123", response.getUserId());
+        assertTrue(response.getOrderId().isPresent());
+        assertEquals("order456", response.getOrderId().get());
+        assertNotNull(response.getCreatedAt());
+        assertNotNull(response.getUpdatedAt());
+
+        verify(paymentRepository, times(1)).findById(paymentId);
+    }
+
+    @Test
+    void getPaymentById_WithNonExistentId_ShouldThrowException() {
+        // Given
+        Long paymentId = 999L;
+        when(paymentRepository.findById(paymentId)).thenReturn(Optional.empty());
+
+        // When/Then
+        PaymentNotFoundException exception = assertThrows(
+                PaymentNotFoundException.class,
+                () -> paymentService.getPaymentById(paymentId)
+        );
+
+        assertEquals("Payment not found with ID: " + paymentId, exception.getMessage());
+        verify(paymentRepository, times(1)).findById(paymentId);
     }
 }

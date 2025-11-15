@@ -3,6 +3,7 @@ package com.asma.paymentservice.controller;
 import com.asma.paymentservice.dto.CreatePaymentRequest;
 import com.asma.paymentservice.repository.PaymentRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.openapitools.jackson.nullable.JsonNullable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,7 +44,7 @@ class PaymentControllerIntegrationTest {
         request.setCurrency("USD");
         request.setMethod(CreatePaymentRequest.MethodEnum.CREDIT_CARD);
         request.setUserId("user123");
-        request.setOrderId(org.openapitools.jackson.nullable.JsonNullable.of("order456"));
+        request.setOrderId(JsonNullable.of("order456"));
 
         // When/Then
         mockMvc.perform(post("/payments")
@@ -155,15 +156,13 @@ class PaymentControllerIntegrationTest {
     @Test
     void createPayment_WithOrderIdInJson_ShouldDeserializeCorrectly() throws Exception {
         // Given - Test direct JSON deserialization (not using ObjectMapper serialization)
-        String jsonRequest = """
-            {
-                "amount": 75.50,
-                "currency": "USD",
-                "method": "CREDIT_CARD",
-                "userId": "user999",
-                "orderId": "order789"
-            }
-            """;
+        String jsonRequest = "{\n" +
+                "    \"amount\": 75.50,\n" +
+                "    \"currency\": \"USD\",\n" +
+                "    \"method\": \"CREDIT_CARD\",\n" +
+                "    \"userId\": \"user999\",\n" +
+                "    \"orderId\": \"order789\"\n" +
+                "}";
 
         // When/Then
         mockMvc.perform(post("/payments")
@@ -182,15 +181,13 @@ class PaymentControllerIntegrationTest {
     @Test
     void createPayment_WithNullOrderIdInJson_ShouldDeserializeCorrectly() throws Exception {
         // Given - Test JSON with null orderId
-        String jsonRequest = """
-            {
-                "amount": 100.00,
-                "currency": "EUR",
-                "method": "PAYPAL",
-                "userId": "user888",
-                "orderId": null
-            }
-            """;
+        String jsonRequest = "{\n" +
+                "    \"amount\": 100.00,\n" +
+                "    \"currency\": \"EUR\",\n" +
+                "    \"method\": \"PAYPAL\",\n" +
+                "    \"userId\": \"user888\",\n" +
+                "    \"orderId\": null\n" +
+                "}";
 
         // When/Then
         mockMvc.perform(post("/payments")
@@ -356,6 +353,65 @@ class PaymentControllerIntegrationTest {
 
         // Verify two payments exist in database
         assertEquals(2, paymentRepository.count());
+    }
+
+    @Test
+    void getPaymentById_WithExistingId_ShouldReturn200() throws Exception {
+        // Given - Create a payment first
+        CreatePaymentRequest createRequest = new CreatePaymentRequest();
+        createRequest.setAmount(99.99);
+        createRequest.setCurrency("USD");
+        createRequest.setMethod(CreatePaymentRequest.MethodEnum.CREDIT_CARD);
+        createRequest.setUserId("user123");
+        createRequest.setOrderId(org.openapitools.jackson.nullable.JsonNullable.of("order456"));
+
+        String createResponse = mockMvc.perform(post("/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(createRequest)))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        Long paymentId = objectMapper.readTree(createResponse).get("id").asLong();
+
+        // When/Then - Retrieve the payment
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/payments/" + paymentId))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.id").value(paymentId))
+                .andExpect(jsonPath("$.amount").value(99.99))
+                .andExpect(jsonPath("$.currency").value("USD"))
+                .andExpect(jsonPath("$.method").value("CREDIT_CARD"))
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.userId").value("user123"))
+                .andExpect(jsonPath("$.orderId").value("order456"))
+                .andExpect(jsonPath("$.createdAt").exists())
+                .andExpect(jsonPath("$.updatedAt").exists());
+    }
+
+    @Test
+    void getPaymentById_WithNonExistentId_ShouldReturn404() throws Exception {
+        // Given - Non-existent payment ID
+        Long nonExistentId = 999L;
+
+        // When/Then
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/payments/" + nonExistentId))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value(404))
+                .andExpect(jsonPath("$.message").value("Payment not found"))
+                .andExpect(jsonPath("$.details").value("Payment not found with ID: " + nonExistentId));
+    }
+
+    @Test
+    void getPaymentById_WithInvalidIdFormat_ShouldReturn400() throws Exception {
+        // Given - Invalid ID format (non-numeric)
+        String invalidId = "abc";
+
+        // When/Then
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/payments/" + invalidId))
+                .andExpect(status().isBadRequest());
     }
 }
 
