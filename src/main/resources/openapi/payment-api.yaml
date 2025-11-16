@@ -276,34 +276,101 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
     get:
-      summary: Retrieve an invoice by payment ID
-      operationId: getInvoiceByPaymentId
+      summary: List invoices with optional filters or retrieve an invoice by payment ID
+      operationId: listInvoices
       tags:
         - invoices
       parameters:
         - name: paymentId
           in: query
-          required: true
+          required: false
           schema:
             type: integer
             format: int64
-          description: Payment identifier
+          description: Payment identifier. If provided, returns a single invoice for this payment. If not provided, returns a paginated list of invoices.
           example: 1
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - CREATED
+              - SENT
+              - PAID
+              - CANCELLED
+          description: Filter by invoice status (only used when paymentId is not provided)
+          example: CREATED
+        - name: userId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by user identifier (only used when paymentId is not provided)
+          example: user123
+        - name: fromDate
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Filter invoices from this date (based on issueDate, only used when paymentId is not provided)
+          example: 2024-01-01
+        - name: toDate
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Filter invoices to this date (based on issueDate, only used when paymentId is not provided)
+          example: 2024-12-31
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+            default: 0
+            minimum: 0
+          description: Page number (0-indexed, only used when paymentId is not provided)
+          example: 0
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+            default: 20
+            minimum: 1
+            maximum: 100
+          description: Page size (only used when paymentId is not provided)
+          example: 20
       responses:
         '200':
-          description: Invoice retrieved successfully
+          description: Success response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/InvoiceResponse'
+                oneOf:
+                  - $ref: '#/components/schemas/InvoiceResponse'
+                  - $ref: '#/components/schemas/InvoiceListResponse'
+              examples:
+                singleInvoice:
+                  summary: Single invoice response (when paymentId is provided)
+                  value:
+                    $ref: '#/components/schemas/InvoiceResponse'
+                invoiceList:
+                  summary: Invoice list response (when listing)
+                  value:
+                    $ref: '#/components/schemas/InvoiceListResponse'
         '404':
-          description: Invoice not found
+          description: Invoice not found (when paymentId is provided and invoice doesn't exist)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '400':
-          description: Bad request - invalid payment ID format
+          description: Bad request - invalid parameters
           content:
             application/json:
               schema:
@@ -349,6 +416,61 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      summary: Update invoice status
+      operationId: updateInvoiceStatus
+      tags:
+        - invoices
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: Invoice identifier
+          example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateInvoiceStatusRequest'
+      responses:
+        '200':
+          description: Invoice status updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceResponse'
+        '400':
+          description: Bad request - invalid status value
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Invoice not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict - invalid status transition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: 409
+                message: Invalid status transition
+                details: Cannot transition from terminal state PAID to SENT. Invoices in PAID status cannot be modified.
         '500':
           description: Internal server error
           content:
@@ -537,11 +659,72 @@ components:
           nullable: true
           description: Invoice due date (optional)
           example: 2024-02-15
+        sentAt:
+          type: string
+          format: date
+          nullable: true
+          description: Date when invoice was sent (optional)
+          example: 2024-01-16
+        paidAt:
+          type: string
+          format: date
+          nullable: true
+          description: Date when invoice was paid (optional)
+          example: 2024-01-20
+        cancelledAt:
+          type: string
+          format: date
+          nullable: true
+          description: Date when invoice was cancelled (optional)
+          example: 2024-01-18
         orderId:
           type: string
           nullable: true
           description: Order identifier
           example: order456
+
+    InvoiceListResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceResponse'
+          description: List of invoices
+        totalElements:
+          type: integer
+          format: int64
+          description: Total number of invoices matching the filters
+          example: 100
+        totalPages:
+          type: integer
+          format: int32
+          description: Total number of pages
+          example: 5
+        page:
+          type: integer
+          format: int32
+          description: Current page number (0-indexed)
+          example: 0
+        size:
+          type: integer
+          format: int32
+          description: Page size
+          example: 20
+
+    UpdateInvoiceStatusRequest:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - SENT
+            - PAID
+            - CANCELLED
+          description: New invoice status
+          example: SENT
 
     ErrorResponse:
       type: object

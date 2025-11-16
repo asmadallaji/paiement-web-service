@@ -149,9 +149,9 @@
 
 **Tâches :**
 
-* [ ] Récupérer une facture par `id` ou par `paymentId`
-* [ ] Retourner 404 si non trouvée
-* [ ] Inclure dans la réponse : montant, devise, dates, statut, références paiement
+* [x] Récupérer une facture par `id` ou par `paymentId`
+* [x] Retourner 404 si non trouvée
+* [x] Inclure dans la réponse : montant, devise, dates, statut, références paiement
 
 ---
 
@@ -163,13 +163,13 @@
 
 **Tâches :**
 
-* [ ] Lister toutes les factures
-* [ ] Ajouter des filtres :
+* [x] Lister toutes les factures
+* [x] Ajouter des filtres :
 
     * par `userId`
     * par `status`
     * par période (date de création)
-* [ ] Gérer pagination
+* [x] Gérer pagination
 
 ---
 

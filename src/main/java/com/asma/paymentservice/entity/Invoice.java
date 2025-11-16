@@ -47,6 +47,15 @@ public class Invoice {
     private LocalDate dueDate;
 
     @Column
+    private LocalDate sentAt;
+
+    @Column
+    private LocalDate paidAt;
+
+    @Column
+    private LocalDate cancelledAt;
+
+    @Column
     private String orderId;
 }
 
