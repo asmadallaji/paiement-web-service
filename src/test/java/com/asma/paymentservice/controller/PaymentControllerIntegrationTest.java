@@ -1,6 +1,7 @@
 package com.asma.paymentservice.controller;
 
 import com.asma.paymentservice.dto.CreatePaymentRequest;
+import com.asma.paymentservice.dto.UpdatePaymentStatusRequest;
 import com.asma.paymentservice.repository.PaymentRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.openapitools.jackson.nullable.JsonNullable;
@@ -13,7 +14,14 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.asma.paymentservice.entity.Payment;
+import com.asma.paymentservice.entity.PaymentStatus;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -412,6 +420,340 @@ class PaymentControllerIntegrationTest {
         // When/Then
         mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/payments/" + invalidId))
                 .andExpect(status().isBadRequest());
+    }
+
+    // Status Update Integration Tests
+
+    @Test
+    void updatePaymentStatus_WithValidTransition_ShouldReturn200() throws Exception {
+        // Given - Create a payment with PENDING status
+        Payment payment = Payment.builder()
+                .amount(BigDecimal.valueOf(99.99))
+                .currency("USD")
+                .method("CREDIT_CARD")
+                .status(PaymentStatus.PENDING)
+                .userId("user123")
+                .orderId("order456")
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+        Payment savedPayment = paymentRepository.save(payment);
+        Long paymentId = savedPayment.getId();
+
+        // When - Update status from PENDING to APPROVED
+        UpdatePaymentStatusRequest requestBody = new UpdatePaymentStatusRequest();
+        requestBody.setStatus(UpdatePaymentStatusRequest.StatusEnum.APPROVED);
+
+        // Then
+        mockMvc.perform(patch("/payments/" + paymentId + "/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(requestBody)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(paymentId))
+                .andExpect(jsonPath("$.status").value("APPROVED"));
+    }
+
+    @Test
+    void updatePaymentStatus_WithInvalidTransitionFromTerminalState_ShouldReturn409() throws Exception {
+        // Given - Create a payment with APPROVED status (terminal state)
+        Payment payment = Payment.builder()
+                .amount(BigDecimal.valueOf(99.99))
+                .currency("USD")
+                .method("CREDIT_CARD")
+                .status(PaymentStatus.APPROVED)
+                .userId("user123")
+                .orderId("order456")
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+        Payment savedPayment = paymentRepository.save(payment);
+        Long paymentId = savedPayment.getId();
+
+        // When - Attempt to update status from APPROVED to FAILED (invalid transition - terminal state cannot change)
+        UpdatePaymentStatusRequest requestBody = new UpdatePaymentStatusRequest();
+        requestBody.setStatus(UpdatePaymentStatusRequest.StatusEnum.FAILED);
+
+        // Then - Should return 409 Conflict
+        mockMvc.perform(patch("/payments/" + paymentId + "/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(requestBody)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(409))
+                .andExpect(jsonPath("$.message").value("Invalid status transition"))
+                .andExpect(jsonPath("$.details").exists())
+                .andExpect(jsonPath("$.details").value(org.hamcrest.Matchers.containsString("Cannot transition from terminal state")));
+    }
+
+    @Test
+    void updatePaymentStatus_ErrorResponseFormat_ShouldIncludeCodeMessageAndDetails() throws Exception {
+        // Given - Create a payment with FAILED status (terminal state)
+        Payment payment = Payment.builder()
+                .amount(BigDecimal.valueOf(50.00))
+                .currency("EUR")
+                .method("PAYPAL")
+                .status(PaymentStatus.FAILED)
+                .userId("user456")
+                .orderId("order789")
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+        Payment savedPayment = paymentRepository.save(payment);
+        Long paymentId = savedPayment.getId();
+
+        // When - Attempt invalid transition from FAILED to APPROVED
+        UpdatePaymentStatusRequest requestBody = new UpdatePaymentStatusRequest();
+        requestBody.setStatus(UpdatePaymentStatusRequest.StatusEnum.APPROVED);
+
+        // Then - Verify error response format includes code 409, message, and details
+        mockMvc.perform(patch("/payments/" + paymentId + "/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(requestBody)))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value(409))
+                .andExpect(jsonPath("$.message").value("Invalid status transition"))
+                .andExpect(jsonPath("$.details").exists())
+                .andExpect(jsonPath("$.details").isString())
+                .andExpect(jsonPath("$.details").value(org.hamcrest.Matchers.containsString("FAILED")));
+    }
+
+    @Test
+    void updatePaymentStatus_WithNonExistentPayment_ShouldReturn404() throws Exception {
+        // Given - Non-existent payment ID
+        Long nonExistentId = 999L;
+        UpdatePaymentStatusRequest requestBody = new UpdatePaymentStatusRequest();
+        requestBody.setStatus(UpdatePaymentStatusRequest.StatusEnum.APPROVED);
+
+        // When/Then
+        mockMvc.perform(patch("/payments/" + nonExistentId + "/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(requestBody)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(404))
+                .andExpect(jsonPath("$.message").value("Payment not found"));
+    }
+
+    @Test
+    void updatePaymentStatus_WithAllValidTransitions_ShouldSucceed() throws Exception {
+        // Test PENDING -> FAILED
+        Payment payment1 = Payment.builder()
+                .amount(BigDecimal.valueOf(50.00))
+                .currency("USD")
+                .method("CREDIT_CARD")
+                .status(PaymentStatus.PENDING)
+                .userId("user1")
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+        Payment saved1 = paymentRepository.save(payment1);
+        
+        UpdatePaymentStatusRequest request1 = new UpdatePaymentStatusRequest();
+        request1.setStatus(UpdatePaymentStatusRequest.StatusEnum.FAILED);
+        
+        mockMvc.perform(patch("/payments/" + saved1.getId() + "/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request1)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FAILED"));
+
+        // Test PENDING -> CANCELED
+        Payment payment2 = Payment.builder()
+                .amount(BigDecimal.valueOf(75.00))
+                .currency("EUR")
+                .method("PAYPAL")
+                .status(PaymentStatus.PENDING)
+                .userId("user2")
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+        Payment saved2 = paymentRepository.save(payment2);
+        
+        UpdatePaymentStatusRequest request2 = new UpdatePaymentStatusRequest();
+        request2.setStatus(UpdatePaymentStatusRequest.StatusEnum.CANCELED);
+        
+        mockMvc.perform(patch("/payments/" + saved2.getId() + "/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request2)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELED"));
+    }
+
+    @Test
+    void listPayments_WithNoFilters_ShouldReturnPaginatedList() throws Exception {
+        // Given - Create multiple payments
+        for (int i = 0; i < 5; i++) {
+            CreatePaymentRequest request = new CreatePaymentRequest();
+            request.setAmount(10.0 + i);
+            request.setCurrency("USD");
+            request.setMethod(CreatePaymentRequest.MethodEnum.CREDIT_CARD);
+            request.setUserId("user" + i);
+            request.setOrderId(JsonNullable.of("order" + i));
+
+            mockMvc.perform(post("/payments")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isCreated());
+        }
+
+        // When/Then
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/payments"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.content.length()").value(org.hamcrest.Matchers.greaterThanOrEqualTo(5)))
+                .andExpect(jsonPath("$.totalElements").value(org.hamcrest.Matchers.greaterThanOrEqualTo(5)))
+                .andExpect(jsonPath("$.totalPages").exists())
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20));
+    }
+
+    @Test
+    void listPayments_WithStatusFilter_ShouldReturnFilteredPayments() throws Exception {
+        // Given - Create payments with different statuses
+        CreatePaymentRequest request1 = new CreatePaymentRequest();
+        request1.setAmount(99.99);
+        request1.setCurrency("USD");
+        request1.setMethod(CreatePaymentRequest.MethodEnum.CREDIT_CARD);
+        request1.setUserId("user123");
+        mockMvc.perform(post("/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request1)))
+                .andExpect(status().isCreated());
+
+        // When/Then - Filter by PENDING status
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/payments?status=PENDING"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.content[0].status").value("PENDING"))
+                .andExpect(jsonPath("$.totalElements").value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)));
+    }
+
+    @Test
+    void listPayments_WithUserIdFilter_ShouldReturnFilteredPayments() throws Exception {
+        // Given - Create payment for specific user
+        CreatePaymentRequest request = new CreatePaymentRequest();
+        request.setAmount(50.00);
+        request.setCurrency("EUR");
+        request.setMethod(CreatePaymentRequest.MethodEnum.PAYPAL);
+        request.setUserId("filterUser");
+        mockMvc.perform(post("/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
+
+        // When/Then
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/payments?userId=filterUser"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.content[0].userId").value("filterUser"))
+                .andExpect(jsonPath("$.totalElements").value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)));
+    }
+
+    @Test
+    void listPayments_WithOrderIdFilter_ShouldReturnFilteredPayments() throws Exception {
+        // Given - Create payment with specific orderId
+        CreatePaymentRequest request = new CreatePaymentRequest();
+        request.setAmount(75.00);
+        request.setCurrency("GBP");
+        request.setMethod(CreatePaymentRequest.MethodEnum.BANK_TRANSFER);
+        request.setUserId("user999");
+        request.setOrderId(JsonNullable.of("filterOrder"));
+        mockMvc.perform(post("/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
+
+        // When/Then
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/payments?orderId=filterOrder"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.content[0].orderId").value("filterOrder"))
+                .andExpect(jsonPath("$.totalElements").value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)));
+    }
+
+    @Test
+    void listPayments_WithMultipleFilters_ShouldReturnFilteredPayments() throws Exception {
+        // Given - Create payment with specific status and userId
+        CreatePaymentRequest request = new CreatePaymentRequest();
+        request.setAmount(100.00);
+        request.setCurrency("USD");
+        request.setMethod(CreatePaymentRequest.MethodEnum.CREDIT_CARD);
+        request.setUserId("multiFilterUser");
+        mockMvc.perform(post("/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
+
+        // When/Then
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/payments?status=PENDING&userId=multiFilterUser"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.content[0].status").value("PENDING"))
+                .andExpect(jsonPath("$.content[0].userId").value("multiFilterUser"))
+                .andExpect(jsonPath("$.totalElements").value(org.hamcrest.Matchers.greaterThanOrEqualTo(1)));
+    }
+
+    @Test
+    void listPayments_WithPagination_ShouldReturnPaginatedResults() throws Exception {
+        // Given - Create multiple payments
+        for (int i = 0; i < 15; i++) {
+            CreatePaymentRequest request = new CreatePaymentRequest();
+            request.setAmount(10.0 + i);
+            request.setCurrency("USD");
+            request.setMethod(CreatePaymentRequest.MethodEnum.CREDIT_CARD);
+            request.setUserId("pagUser");
+            mockMvc.perform(post("/payments")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(request)))
+                    .andExpect(status().isCreated());
+        }
+
+        // When/Then - First page with size 10
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/payments?page=0&size=10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(10))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(10))
+                .andExpect(jsonPath("$.totalElements").value(org.hamcrest.Matchers.greaterThanOrEqualTo(15)));
+
+        // When/Then - Second page
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/payments?page=1&size=10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.page").value(1))
+                .andExpect(jsonPath("$.size").value(10));
+    }
+
+    @Test
+    void listPayments_WithInvalidSize_ShouldReturn400() throws Exception {
+        // When/Then
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/payments?size=200"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.message").value("Validation failed"))
+                .andExpect(jsonPath("$.details").value("Page size must be between 1 and 100"));
+    }
+
+    @Test
+    void listPayments_WithInvalidPage_ShouldReturn400() throws Exception {
+        // When/Then
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/payments?page=-1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(400))
+                .andExpect(jsonPath("$.details").value("Page number must be >= 0"));
+    }
+
+    @Test
+    void listPayments_WithEmptyResult_ShouldReturnEmptyList() throws Exception {
+        // Given - Clear all payments
+        paymentRepository.deleteAll();
+
+        // When/Then
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/payments?status=APPROVED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.content.length()").value(0))
+                .andExpect(jsonPath("$.totalElements").value(0))
+                .andExpect(jsonPath("$.totalPages").value(0));
     }
 }
 
