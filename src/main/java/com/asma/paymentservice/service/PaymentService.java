@@ -31,6 +31,7 @@ import java.util.stream.Collectors;
 public class PaymentService {
 
     private final PaymentRepository paymentRepository;
+    private final InvoiceService invoiceService;
 
     @Transactional
     public PaymentResponse createPayment(CreatePaymentRequest request) {
@@ -161,6 +162,17 @@ public class PaymentService {
         // Save updated payment
         Payment savedPayment = paymentRepository.save(payment);
         log.info("Payment status updated for ID {}: {} -> {}", id, payment.getStatus(), newStatus);
+
+        // Automatically create invoice when payment transitions to APPROVED
+        if (newStatus == PaymentStatus.APPROVED) {
+            try {
+                invoiceService.createInvoiceFromPayment(savedPayment);
+                log.info("Invoice automatically created for approved payment ID: {}", id);
+            } catch (Exception e) {
+                // Log error but don't fail payment update (as per design decision)
+                log.error("Failed to create invoice for approved payment ID: {}. Error: {}", id, e.getMessage(), e);
+            }
+        }
 
         return mapToResponse(savedPayment);
     }

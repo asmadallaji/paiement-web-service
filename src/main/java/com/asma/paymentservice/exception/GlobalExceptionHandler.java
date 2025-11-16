@@ -36,6 +36,24 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
     }
 
+    @ExceptionHandler(InvoiceNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleInvoiceNotFound(InvoiceNotFoundException ex) {
+        ErrorResponse error = new ErrorResponse();
+        error.setCode(404);
+        error.setMessage("Invoice not found");
+        error.setDetails(ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
+    }
+
+    @ExceptionHandler(InvalidInvoiceRequestException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidInvoiceRequest(InvalidInvoiceRequestException ex) {
+        ErrorResponse error = new ErrorResponse();
+        error.setCode(409);
+        error.setMessage("Invalid invoice request");
+        error.setDetails(ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGenericException(Exception ex) {
         ErrorResponse error = new ErrorResponse();

@@ -170,13 +170,16 @@ The system SHALL validate all payment status transitions according to business r
 - **AND** the system SHALL log the business rule violation
 
 ### Requirement: Payment Status Update
-The system SHALL provide an API endpoint to update the status of an existing payment. The endpoint SHALL validate status transitions according to business rules, update the payment's `updatedAt` timestamp, and return the updated payment. Only payments in PENDING status SHALL be allowed to transition to APPROVED, FAILED, or CANCELED. Payments in APPROVED, FAILED, or CANCELED status SHALL NOT be allowed to change status.
+The system SHALL provide an API endpoint to update the status of an existing payment. The endpoint SHALL validate status transitions according to business rules, update the payment's `updatedAt` timestamp, and return the updated payment. Only payments in PENDING status SHALL be allowed to transition to APPROVED, FAILED, or CANCELED. Payments in APPROVED, FAILED, or CANCELED status SHALL NOT be allowed to change status. When a payment status transitions to APPROVED, the system SHALL automatically create an invoice with status CREATED.
 
 #### Scenario: Update payment status from PENDING to APPROVED
 - **WHEN** a client sends a PATCH request to `/payments/{id}/status` with status `APPROVED`
 - **AND** the payment exists and has status `PENDING`
 - **THEN** the system SHALL update the payment status to `APPROVED`
 - **AND** the system SHALL update the `updatedAt` timestamp
+- **AND** the system SHALL automatically create an invoice with status CREATED for this payment
+- **AND** the invoice SHALL include all payment information (paymentId, userId, amount, currency, orderId if present)
+- **AND** the invoice SHALL have a unique invoiceNumber generated
 - **AND** the system SHALL return the updated payment with status 200 OK
 
 #### Scenario: Update payment status from PENDING to FAILED
@@ -184,6 +187,7 @@ The system SHALL provide an API endpoint to update the status of an existing pay
 - **AND** the payment exists and has status `PENDING`
 - **THEN** the system SHALL update the payment status to `FAILED`
 - **AND** the system SHALL update the `updatedAt` timestamp
+- **AND** the system SHALL NOT create an invoice
 - **AND** the system SHALL return the updated payment with status 200 OK
 
 #### Scenario: Update payment status from PENDING to CANCELED
@@ -191,6 +195,7 @@ The system SHALL provide an API endpoint to update the status of an existing pay
 - **AND** the payment exists and has status `PENDING`
 - **THEN** the system SHALL update the payment status to `CANCELED`
 - **AND** the system SHALL update the `updatedAt` timestamp
+- **AND** the system SHALL NOT create an invoice
 - **AND** the system SHALL return the updated payment with status 200 OK
 
 #### Scenario: Reject status update for non-PENDING payment
